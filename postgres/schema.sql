@@ -18,7 +18,7 @@ CREATE TABLE ACCOUNTS (
 CREATE TABLE transactions (
     id BIGSERIAL PRIMARY KEY,
     account_id INT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    txn_type VARCHAR(50) NOT NULL,
+    transaction_type VARCHAR(50) NOT NULL,
     amount NUMERIC(18,2) NOT NULL CHECK (amount > 0),
     related_account_id INT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'COMPLETED',
