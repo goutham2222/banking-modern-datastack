@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+
+# Logs
+*.log
+docker/logs/
+
+# Docker volumes
+docker/postgres/data/
+docker/minio/data/
+
+# OS
+.DS_Store
+
+# Images (optional if not needed)
+*.jpeg
+*.jpg
+*.png
