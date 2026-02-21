@@ -94,7 +94,7 @@ services:
     volumes:
       - airflow_postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "5435:5432"
 
   airflow-webserver:
     build:
