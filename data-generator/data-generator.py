@@ -140,6 +140,3 @@ finally:
     cur.close()
     conn.close()
     sys.exit(0)
-
-    
-
