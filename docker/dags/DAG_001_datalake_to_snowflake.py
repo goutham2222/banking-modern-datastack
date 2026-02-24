@@ -48,6 +48,7 @@ def download_from_data_lake():
             local_files[table].append(local_file)
     return local_files
 
+# Load the data from local to snowflake
 def upload_data_to_snowflake():
     local_files = kwargs["ti"].xcom_pull(task_ids="download_minio")
     
@@ -85,3 +86,30 @@ def upload_data_to_snowflake():
 
     cur.close()
     conn.close()
+
+# Defining the airflow DAG arguments and dependency
+default_args = {
+    "owner": "airflow",
+    "retries": 1,
+    "retry_delay": timedelta(minutes = 1),
+}
+
+with DAG(
+    dag_id="minio_to_snowflake_banking",
+    schedule_interval="*/1 * * * *",
+    start_date=datetime(2025, 1, 1),
+    catchup=False,
+) as dag:
+
+    task1 = PythonOperator(
+        task_id="download_minio",
+        python_callable=download_from_data_lake,
+    )
+
+    task2 = PythonOperator(
+        task_id="load_snowflake",
+        python_callable=upload_data_to_snowflake,
+        provide_context=True,
+    )
+
+    task1 >> task2
