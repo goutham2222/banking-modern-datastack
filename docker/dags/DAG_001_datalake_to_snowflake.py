@@ -47,3 +47,41 @@ def download_from_data_lake():
             print(f"Downloaded {key} -> {local_file}")
             local_files[table].append(local_file)
     return local_files
+
+def upload_data_to_snowflake():
+    local_files = kwargs["ti"].xcom_pull(task_ids="download_minio")
+    
+    if not local_files:
+        print("No files found in MinIO.")
+        return
+    
+    conn = snowflake.connector.connect(
+        user=SNOWFLAKE_USER,
+        password=SNOWFLAKE_PASSWORD,
+        account=SNOWFLAKE_ACCOUNT,
+        warehouse=SNOWFLAKE_WAREHOUSE,
+        database=SNOWFLAKE_DB,
+        schema=SNOWFLAKE_SCHEMA,
+    )
+    cur = conn.cursor()
+
+    for table, files in local_files.items():
+        if not files:
+            print(f"No files for {table}, skipping.")
+            continue
+
+        for f in files:
+            cur.execute(f"PUT file://{f} @%{table}")
+            print(f"Uploaded {f} -> @{table} stage")
+
+        copy_sql = f"""
+        COPY INTO {table}
+        FROM @%{table}
+        FILE_FORMAT=(TYPE=PARQUET)
+        ON_ERROR='CONTINUE'
+        """
+        cur.execute(copy_sql)
+        print(f"Data loaded into {table}")
+
+    cur.close()
+    conn.close()
