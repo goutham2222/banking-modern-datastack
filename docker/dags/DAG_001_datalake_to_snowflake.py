@@ -28,16 +28,16 @@ tables = ['customers', 'accounts', 'transactions']
 # Download data from Data Lake
 def download_from_data_lake():
     os.makedirs(local_dir, exist_ok=True)
-    s3.boto3.client(
+    s3 = boto3.client(
         's3',
-        endpoint_url=MINIO_ENDPOINT,
-        aws_access_key_id=MINIO_ACCESS_KEY,
-        aws_secret_access_key=MINIO_SECRET_KEY
+        endpoint_url=minio_endpoint,
+        aws_access_key_id=minio_access_key,
+        aws_secret_access_key=minio_secret_key
     )
     local_files = {}
     for table in tables:
         prefix = f"{table}/"
-        resp = s3.list_objects_v2(Bucket=minio_bucke, Prefix=prefix)
+        resp = s3.list_objects_v2(Bucket=minio_bucket, Prefix=prefix)
         objects = resp.get('Contents', [])
         local_files[table] = []
         for obj in objects:
@@ -49,7 +49,7 @@ def download_from_data_lake():
     return local_files
 
 # Load the data from local to snowflake
-def upload_data_to_snowflake():
+def upload_data_to_snowflake(**kwargs):
     local_files = kwargs["ti"].xcom_pull(task_ids="download_minio")
     
     if not local_files:
@@ -57,12 +57,12 @@ def upload_data_to_snowflake():
         return
     
     conn = snowflake.connector.connect(
-        user=SNOWFLAKE_USER,
-        password=SNOWFLAKE_PASSWORD,
-        account=SNOWFLAKE_ACCOUNT,
-        warehouse=SNOWFLAKE_WAREHOUSE,
-        database=SNOWFLAKE_DB,
-        schema=SNOWFLAKE_SCHEMA,
+        user=snowflake_user,
+        password=snowflake_password,
+        account=snowflake_account,
+        warehouse=snowflake_warehouse,
+        database=snowflake_db,
+        schema=snowflake_schema,
     )
     cur = conn.cursor()
 
