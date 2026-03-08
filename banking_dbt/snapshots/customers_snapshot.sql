@@ -1,6 +1,7 @@
+{% snapshot customers_snapshot %}
+
 {{
     config(
-        materialized='snapshot',
         target_schema='ANALYTICS',
         unique_key='customer_id',
         strategy='check',
@@ -10,3 +11,5 @@
 
 select *
 from {{ ref('stg_customers') }}
+
+{% endsnapshot %}
