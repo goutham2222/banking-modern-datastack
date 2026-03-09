@@ -1,7 +1,7 @@
 from faker import Faker
 import psycopg2
 from dotenv import load_dotenv
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal
 import random
 import sys
 import os
