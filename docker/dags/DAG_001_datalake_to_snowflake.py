@@ -8,109 +8,114 @@ import snowflake.connector
 
 load_dotenv()
 
-# Establishing MinIO Connection
-minio_endpoint = os.getenv("MINIO_ENDPOINT")
-minio_access_key = os.getenv("MINIO_ACCESS_KEY")
-minio_secret_key = os.getenv("MINIO_SECRET_KEY")
-minio_bucket = os.getenv("MINIO_BUCKET")
-local_dir = os.getenv("MINIO_LOCAL_DIR")
+# --- Configuration ---
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET")
+LOCAL_DIR = os.getenv("MINIO_LOCAL_DIR")
 
-# Establishing Snowflake Connection
-snowflake_user = os.getenv("SNOWFLAKE_USER")
-snowflake_password = os.getenv("SNOWFLAKE_PASSWORD")
-snowflake_account = os.getenv("SNOWFLAKE_ACCOUNT")
-snowflake_warehouse = os.getenv("SNOWFLAKE_WAREHOUSE")
-snowflake_db = os.getenv("SNOWFLAKE_DB")
-snowflake_schema = os.getenv("SNOWFLAKE_SCHEMA")
+SNOWFLAKE_CONN = {
+    "user": os.getenv("SNOWFLAKE_USER"),
+    "password": os.getenv("SNOWFLAKE_PASSWORD"),
+    "account": os.getenv("SNOWFLAKE_ACCOUNT"),
+    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE"),
+    "database": os.getenv("SNOWFLAKE_DB"),
+    "schema": os.getenv("SNOWFLAKE_SCHEMA"),
+}
 
-tables = ['customers', 'accounts', 'transactions']
+TABLES = ['customers', 'accounts', 'transactions']
 
-# Download data from Data Lake
-def download_from_data_lake():
-    os.makedirs(local_dir, exist_ok=True)
+def download_from_minio():
+    """Downloads new files from MinIO to Airflow local storage."""
+    os.makedirs(LOCAL_DIR, exist_ok=True)
     s3 = boto3.client(
         's3',
-        endpoint_url=minio_endpoint,
-        aws_access_key_id=minio_access_key,
-        aws_secret_access_key=minio_secret_key
+        endpoint_url=MINIO_ENDPOINT,
+        aws_access_key_id=MINIO_ACCESS_KEY,
+        aws_secret_access_key=MINIO_SECRET_KEY
     )
-    local_files = {}
-    for table in tables:
+    
+    downloaded_files = {t: [] for t in TABLES}
+    
+    for table in TABLES:
+        # We only look for files in the table's specific folder
         prefix = f"{table}/"
-        resp = s3.list_objects_v2(Bucket=minio_bucket, Prefix=prefix)
-        objects = resp.get('Contents', [])
-        local_files[table] = []
-        for obj in objects:
+        resp = s3.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=prefix)
+        
+        for obj in resp.get('Contents', []):
             key = obj['Key']
-            local_file = os.path.join(local_dir, os.path.basename(key))
-            s3.download_file(minio_bucket, key, local_file)
-            print(f"Downloaded {key} -> {local_file}")
-            local_files[table].append(local_file)
-    return local_files
+            local_path = os.path.join(LOCAL_DIR, os.path.basename(key))
+            s3.download_file(MINIO_BUCKET, key, local_path)
+            downloaded_files[table].append(local_path)
+            
+            # OPTIONAL: Move file to an 'archive' folder in MinIO here 
+            # to prevent re-processing in the next DAG run.
+            
+    return downloaded_files
 
-# Load the data from local to snowflake
-def upload_data_to_snowflake(**kwargs):
-    local_files = kwargs["ti"].xcom_pull(task_ids="download_minio")
+def load_to_snowflake(**kwargs):
+    """Uploads local files to Snowflake stages and loads into VARIANT tables."""
+    ti = kwargs['ti']
+    files_to_load = ti.xcom_pull(task_ids='download_minio')
     
-    if not local_files:
-        print("No files found in MinIO.")
+    if not files_to_load:
+        print("No new files found to load.")
         return
-    
-    conn = snowflake.connector.connect(
-        user=snowflake_user,
-        password=snowflake_password,
-        account=snowflake_account,
-        warehouse=snowflake_warehouse,
-        database=snowflake_db,
-        schema=snowflake_schema,
-    )
+
+    conn = snowflake.connector.connect(**SNOWFLAKE_CONN)
     cur = conn.cursor()
 
-    for table, files in local_files.items():
-        if not files:
-            print(f"No files for {table}, skipping.")
-            continue
+    try:
+        for table, files in files_to_load.items():
+            for f in files:
+                # 1. PUT the file into the table's named stage
+                cur.execute(f"PUT file://{f} @%{table} AUTO_COMPRESS=TRUE")
+                print(f"Staged {f} to @%{table}")
+                
+                # 2. COPY INTO the variant column 'v'
+                # We use MATCH_BY_COLUMN_NAME=CASE_INSENSITIVE for Parquet flexibility
+                copy_sql = f"""
+                COPY INTO {table} (v)
+                FROM @%{table}
+                FILE_FORMAT = (TYPE = PARQUET)
+                PURGE = TRUE;
+                """
+                cur.execute(copy_sql)
+                print(f"Loaded {f} into {table} table.")
+                
+                # 3. Clean up local file after successful load
+                os.remove(f)
 
-        for f in files:
-            cur.execute(f"PUT file://{f} @%{table}")
-            print(f"Uploaded {f} -> @{table} stage")
+    finally:
+        cur.close()
+        conn.close()
 
-        copy_sql = f"""
-        COPY INTO {table}
-        FROM @%{table}
-        FILE_FORMAT=(TYPE=PARQUET)
-        ON_ERROR='CONTINUE'
-        """
-        cur.execute(copy_sql)
-        print(f"Data loaded into {table}")
-
-    cur.close()
-    conn.close()
-
-# Defining the airflow DAG arguments and dependency
+# --- DAG Definition ---
 default_args = {
     "owner": "airflow",
     "retries": 1,
-    "retry_delay": timedelta(minutes = 1),
+    "retry_delay": timedelta(minutes=1),
 }
 
 with DAG(
     dag_id="minio_to_snowflake_banking",
-    schedule_interval="*/1 * * * *",
+    schedule_interval="*/1 * * * *", # Runs every minute
     start_date=datetime(2026, 1, 1),
     catchup=False,
-    tags = ['MinIO', 'Snowflake']
+    max_active_runs=1,
+    tags=['MinIO', 'Snowflake', 'CDC']
 ) as dag:
 
-    task1 = PythonOperator(
+    task_download = PythonOperator(
         task_id="download_minio",
-        python_callable=download_from_data_lake,
+        python_callable=download_from_minio
     )
 
-    task2 = PythonOperator(
+    task_load = PythonOperator(
         task_id="load_snowflake",
-        python_callable=upload_data_to_snowflake,
-        provide_context=True,
+        python_callable=load_to_snowflake,
+        provide_context=True
     )
 
-    task1 >> task2
+    task_download >> task_load
