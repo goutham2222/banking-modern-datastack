@@ -1,12 +1,17 @@
 import os
-from dotenv import load_dotenv
-import boto3
-from kafka import KafkaConsumer
 import json
+import time
 import pandas as pd
+import boto3
 from datetime import datetime
+from kafka import KafkaConsumer
+from dotenv import load_dotenv
 
 load_dotenv()
+
+# --- Configuration ---
+BATCH_SIZE = 75
+TIME_THRESHOLD = 60  # Seconds
 
 consumer = KafkaConsumer(
     'banking_server.public.customers',
@@ -15,11 +20,10 @@ consumer = KafkaConsumer(
     bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP"),
     auto_offset_reset='earliest',
     enable_auto_commit=True,
-    group_id=os.getenv("KAFKA_GROUP"),
+    group_id=os.getenv("KAFKA_GROUP"), 
     value_deserializer=lambda x: json.loads(x.decode('utf-8'))
 )
 
-# Establishing connection with MinIO
 s3 = boto3.client(
     's3',
     endpoint_url=os.getenv("MINIO_ENDPOINT"),
@@ -27,50 +31,62 @@ s3 = boto3.client(
     aws_secret_access_key=os.getenv("MINIO_SECRET_KEY")
 )
 
-minio_bucket = os.getenv("MINIO_BUCKET")
+bucket = os.getenv("MINIO_BUCKET")
+# Initialize buffers for each topic
+buffer = {t: [] for t in [
+    'banking_server.public.customers', 
+    'banking_server.public.accounts', 
+    'banking_server.public.transactions'
+]}
+last_flush_time = time.time()
 
-# MinIO Bucket Creation
-if minio_bucket not in [b['Name'] for b in s3.list_buckets()['Buckets']]:
-    s3.create_bucket(Bucket=minio_bucket)
-
-# Writing changes to MinIO
-def stream_to_minio(table_name, records):
+def flush_to_minio(topic, records):
     if not records:
         return
     
-    df = pd.DataFrame(records)
-    
+    table_name = topic.split('.')[-1]
     date_str = datetime.now().strftime('%Y-%m-%d')
-    filepath = f'{table_name}_{date_str}.parquet'
-    df.to_parquet(filepath, engine='fastparquet', index=False)
+    ts_str = datetime.now().strftime("%H%M%S%f")
     
-    s3_key = f'{table_name}/{date_str}/{table_name}_{datetime.now().strftime("%H%M%S%f")}.parquet'
-    s3.upload_file(filepath, minio_bucket, s3_key)
-    os.remove(filepath)
-    print(f'Uploaded {len(records)} records to s3://{minio_bucket}/{s3_key}')
+    df = pd.DataFrame(records)
+    filename = f"{table_name}_{ts_str}.parquet"
+    
+    # Save locally then upload to MinIO
+    df.to_parquet(filename, index=False)
+    s3_key = f"{table_name}/{date_str}/{filename}"
+    s3.upload_file(filename, bucket, s3_key)
+    os.remove(filename)
+    print(f"✅ [FLUSH] {len(records)} records for {table_name} -> {s3_key}")
 
-# Batch consumption
-batch_size = 75
-buffer = {
-    'banking_server.public.customers': [],
-    'banking_server.public.accounts': [],
-    'banking_server.public.transactions': []
-}
+print("📡 Streamer is active. Listening for CDC events...")
 
-print("Connected to Kafka. Listening for messages...")
+try:
+    for message in consumer:
+        topic = message.topic
+        event_value = message.value
+        
+        # Debezium structure: payload contains 'before', 'after', and 'op'
+        payload = event_value.get("payload", {})
+        operation = payload.get("op") # c=create, u=update, d=delete
+        
+        # We want the 'after' state for inserts/updates
+        # If it's a delete, 'after' is null, so we take 'before'
+        record_data = payload.get("after") if payload.get("after") else payload.get("before")
+        
+        if record_data:
+            # Add metadata so Snowflake/dbt knows WHAT happened to this row
+            record_data['cdc_operation'] = operation
+            record_data['stream_timestamp'] = datetime.now().isoformat()
+            buffer[topic].append(record_data)
 
-for message in consumer:
-    topic = message.topic
-    event = message.value
-    payload = event.get("payload", {})
+        # Check if we should flush based on count or time
+        current_time = time.time()
+        if len(buffer[topic]) >= BATCH_SIZE or (current_time - last_flush_time) > TIME_THRESHOLD:
+            for t in buffer:
+                if buffer[t]:
+                    flush_to_minio(t, buffer[t])
+                    buffer[t] = []
+            last_flush_time = current_time
 
-    # Capture 'after' for inserts/updates, or 'before' for deletes
-    record = payload.get("after")
-
-    if record:
-        buffer[topic].append(record)
-        print(f"[{topic}] -> {record}")  # For debugging purpose
-
-    if len(buffer[topic]) >= batch_size:
-        stream_to_minio(topic.split('.')[-1], buffer[topic])
-        buffer[topic] = []
+except KeyboardInterrupt:
+    print("\nStopping streamer...")
