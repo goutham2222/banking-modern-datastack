@@ -97,8 +97,9 @@ default_args = {
 with DAG(
     dag_id="minio_to_snowflake_banking",
     schedule_interval="*/1 * * * *",
-    start_date=datetime(2025, 1, 1),
+    start_date=datetime(2026, 1, 1),
     catchup=False,
+    tags = ['MinIO', 'Snowflake']
 ) as dag:
 
     task1 = PythonOperator(

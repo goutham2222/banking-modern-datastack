@@ -1,4 +1,4 @@
-# Python
+# Python cache & environment
 __pycache__/
 *.pyc
 *.pyo
@@ -8,16 +8,40 @@ venv/
 
 # Logs
 *.log
+logs/
 docker/logs/
 
-# Docker volumes
-docker/postgres/data/
-docker/minio/data/
+# Docker volumes and persistent storage
+docker/postgres/
+docker/minio/
+docker/plugins/
 
-# OS
+# OS files
 .DS_Store
 
-# Images (optional if not needed)
+# IDEs
+.vscode/
+.idea/
+
+# Docker Compose overrides
+docker-compose.override.yml
+
+# Images (optional)
 *.jpeg
 *.jpg
 *.png
+
+# GitHub Actions cache
+/.github/.cache
+
+# DBT cache and build artifacts
+banking_dbt/.dbt/
+banking_dbt/analyses/
+banking_dbt/logs/
+banking_dbt/macros/
+banking_dbt/seeds/
+banking_dbt/target/
+banking_dbt/tests/
+
+# MinIO system files (to avoid tracking internal metadata)
+docker/minio/data/.minio.sys/
