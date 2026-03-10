@@ -13,7 +13,7 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET")
-LOCAL_DIR = os.getenv("MINIO_LOCAL_DIR")
+LOCAL_DIR = os.getenv("MINIO_LOCAL_DIR", "/tmp/airflow_landing")
 
 SNOWFLAKE_CONN = {
     "user": os.getenv("SNOWFLAKE_USER"),
@@ -26,8 +26,8 @@ SNOWFLAKE_CONN = {
 
 TABLES = ['customers', 'accounts', 'transactions']
 
-def download_from_minio():
-    """Downloads new files from MinIO to Airflow local storage."""
+def download_and_archive_minio():
+    """Downloads files from landing, then moves them to partitioned archives."""
     os.makedirs(LOCAL_DIR, exist_ok=True)
     s3 = boto3.client(
         's3',
@@ -36,56 +36,78 @@ def download_from_minio():
         aws_secret_access_key=MINIO_SECRET_KEY
     )
     
+    partition_date = datetime.now().strftime('%Y-%m-%d')
     downloaded_files = {t: [] for t in TABLES}
     
     for table in TABLES:
-        # We only look for files in the table's specific folder
+        # Check the flat landing prefix (e.g., 'customers/')
         prefix = f"{table}/"
-        resp = s3.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=prefix)
+        resp = s3.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=prefix, Delimiter='/')
         
-        for obj in resp.get('Contents', []):
+        if 'Contents' not in resp:
+            continue
+
+        for obj in resp['Contents']:
             key = obj['Key']
-            local_path = os.path.join(LOCAL_DIR, os.path.basename(key))
+            if key == prefix: continue # Skip the directory prefix itself
+            
+            filename = os.path.basename(key)
+            local_path = os.path.join(LOCAL_DIR, filename)
+            
+            # 1. Download to Local
             s3.download_file(MINIO_BUCKET, key, local_path)
             downloaded_files[table].append(local_path)
             
-            # OPTIONAL: Move file to an 'archive' folder in MinIO here 
-            # to prevent re-processing in the next DAG run.
+            # 2. Archive Logic: Move to archives/{table}/{date}/{file}
+            archive_key = f"archives/{table}/{partition_date}/{filename}"
+            s3.copy_object(
+                Bucket=MINIO_BUCKET,
+                CopySource={'Bucket': MINIO_BUCKET, 'Key': key},
+                Key=archive_key
+            )
+            
+            # 3. Clean Landing Zone
+            s3.delete_object(Bucket=MINIO_BUCKET, Key=key)
+            print(f"✅ Processed and Archived: {key} -> {archive_key}")
             
     return downloaded_files
 
 def load_to_snowflake(**kwargs):
-    """Uploads local files to Snowflake stages and loads into VARIANT tables."""
+    """Optimized Bulk Load into Snowflake Stage and Table."""
     ti = kwargs['ti']
-    files_to_load = ti.xcom_pull(task_ids='download_minio')
+    files_map = ti.xcom_pull(task_ids='download_minio')
     
-    if not files_to_load:
-        print("No new files found to load.")
+    if not files_map or all(not f for f in files_map.values()):
+        print("No new data to load.")
         return
 
     conn = snowflake.connector.connect(**SNOWFLAKE_CONN)
     cur = conn.cursor()
 
     try:
-        for table, files in files_to_load.items():
+        for table, files in files_map.items():
+            if not files:
+                continue
+            
+            # Step A: Bulk PUT all files for this table into its named stage
+            # We use the specific local paths gathered in the download step
             for f in files:
-                # 1. PUT the file into the table's named stage
                 cur.execute(f"PUT file://{f} @%{table} AUTO_COMPRESS=TRUE")
-                print(f"Staged {f} to @%{table}")
-                
-                # 2. COPY INTO the variant column 'v'
-                # We use MATCH_BY_COLUMN_NAME=CASE_INSENSITIVE for Parquet flexibility
-                copy_sql = f"""
-                COPY INTO {table} (v)
-                FROM @%{table}
-                FILE_FORMAT = (TYPE = PARQUET)
-                PURGE = TRUE;
-                """
-                cur.execute(copy_sql)
-                print(f"Loaded {f} into {table} table.")
-                
-                # 3. Clean up local file after successful load
-                os.remove(f)
+            
+            # Step B: Single Bulk COPY for the whole table
+            copy_sql = f"""
+            COPY INTO {table} (v)
+            FROM @%{table}
+            FILE_FORMAT = (TYPE = PARQUET)
+            PURGE = TRUE;
+            """
+            cur.execute(copy_sql)
+            print(f"🚀 Bulk Load Complete for {table}")
+
+            # Step C: Cleanup Local Airflow Storage
+            for f in files:
+                if os.path.exists(f):
+                    os.remove(f)
 
     finally:
         cur.close()
@@ -100,22 +122,20 @@ default_args = {
 
 with DAG(
     dag_id="minio_to_snowflake_banking",
-    schedule_interval="*/1 * * * *", # Runs every minute
+    schedule_interval="*/2 * * * *", # Every 2 mins to give Snowflake breathing room
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
-    tags=['MinIO', 'Snowflake', 'CDC']
 ) as dag:
 
     task_download = PythonOperator(
         task_id="download_minio",
-        python_callable=download_from_minio
+        python_callable=download_and_archive_minio
     )
 
     task_load = PythonOperator(
         task_id="load_snowflake",
-        python_callable=load_to_snowflake,
-        provide_context=True
+        python_callable=load_to_snowflake
     )
 
     task_download >> task_load

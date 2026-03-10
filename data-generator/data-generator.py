@@ -3,7 +3,6 @@ import psycopg2
 from dotenv import load_dotenv
 from decimal import Decimal
 import random
-import sys
 import os
 import time
 
@@ -29,9 +28,7 @@ def get_db_connection():
 
 def random_amount(min_val: Decimal, max_val: Decimal) -> Decimal:
     range_cents = int((max_val - min_val) * 100)
-    # Ensure we don't return 0 by adding a small offset if needed or choosing again
-    val = (min_val + Decimal(random.randint(0, range_cents)) / 100).quantize(Decimal("0.01"))
-    return val
+    return (min_val + Decimal(random.randint(0, range_cents)) / 100).quantize(Decimal("0.01"))
 
 def create_customer(cur):
     cur.execute(
@@ -44,33 +41,54 @@ def create_customer(cur):
 
 def create_account(cur, customer_id):
     account_type = random.choice(['SAVINGS', 'CHECKING'])
-    balance = random_amount(Decimal('100.00'), Decimal('2000.00'))
+    balance = random_amount(Decimal('500.00'), Decimal('5000.00'))
     cur.execute(
         "INSERT INTO accounts (customer_id, account_type, balance, currency) VALUES (%s, %s, %s, 'USD')",
         (customer_id, account_type, balance),
     )
 
 def generate_transactions(cur):
-    cur.execute("SELECT id FROM accounts")
-    account_ids = [r[0] for r in cur.fetchall()]
-    if not account_ids: return
+    cur.execute("SELECT id, balance FROM accounts")
+    accounts = cur.fetchall()
+    if not accounts: return
 
     for _ in range(TRANSACTIONS_PER_TICK):
-        acc_id = random.choice(account_ids)
-        
-        # FIX: Ensure change is NEVER zero to satisfy Postgres CHECK constraint
-        change = Decimal('0.00')
-        while change == Decimal('0.00'):
-            change = random_amount(Decimal("-50.00"), Decimal("100.00"))
-        
-        # Balance Update
-        cur.execute("UPDATE accounts SET balance = balance + %s WHERE id = %s AND (balance + %s) >= 0", (change, acc_id, change))
-        
-        # Only log the transaction if the UPDATE actually affected a row (balance didn't go negative)
+        acc_id, current_balance = random.choice(accounts)
+        t_type = random.choice(['DEPOSIT', 'WITHDRAWAL', 'TRANSFER'])
+        amount = random_amount(Decimal("10.00"), Decimal("500.00"))
+
+        if t_type == 'WITHDRAWAL':
+            # Only update if balance is sufficient
+            cur.execute(
+                "UPDATE accounts SET balance = balance - %s WHERE id = %s AND balance >= %s", 
+                (amount, acc_id, amount)
+            )
+        elif t_type == 'DEPOSIT':
+            cur.execute(
+                "UPDATE accounts SET balance = balance + %s WHERE id = %s", 
+                (amount, acc_id)
+            )
+        elif t_type == 'TRANSFER':
+            # Pick a target account that isn't the source
+            other_accounts = [a[0] for a in accounts if a[0] != acc_id]
+            if other_accounts:
+                target_id = random.choice(other_accounts)
+                # Deduct from source
+                cur.execute(
+                    "UPDATE accounts SET balance = balance - %s WHERE id = %s AND balance >= %s", 
+                    (amount, acc_id, amount)
+                )
+                if cur.rowcount > 0:
+                    # Add to target
+                    cur.execute("UPDATE accounts SET balance = balance + %s WHERE id = %s", (amount, target_id))
+            else:
+                continue
+
+        # Log the transaction only if the balance update was successful
         if cur.rowcount > 0:
             cur.execute(
                 "INSERT INTO transactions (account_id, transaction_type, amount, status) VALUES (%s, %s, %s, 'COMPLETED')",
-                (acc_id, 'ADJUSTMENT', abs(change)),
+                (acc_id, t_type, amount),
             )
 
 if __name__ == "__main__":
