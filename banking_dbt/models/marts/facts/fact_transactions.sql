@@ -1,6 +1,6 @@
 {{ config(materialized = 'incremental', unique_key = 'transaction_id') }}
 
-select 
+SELECT 
     t.transaction_id,
     t.account_id,
     a.customer_id,
@@ -9,7 +9,12 @@ select
     t.status,
     t.transaction_type,
     t.transaction_time,
-    current_timestamp as load_timestamp
-from {{ ref('stg_transactions') }} t
-left join {{ ref('stg_accounts') }} a
-on t.account_id = a.account_id
+    CURRENT_TIMESTAMP AS load_timestamp
+FROM {{ ref('stg_transactions') }} t
+LEFT JOIN {{ ref('stg_accounts') }} a
+    ON t.account_id = a.account_id
+
+{% if is_incremental() %}
+    -- Only process records that arrived after the newest record currently in this table
+    WHERE t.transaction_time > (SELECT MAX(transaction_time) FROM {{ this }})
+{% endif %}

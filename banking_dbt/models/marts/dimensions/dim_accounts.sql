@@ -1,16 +1,16 @@
-{{ config(materialized = 'table')}}
+{{ config(materialized = 'table') }}
 
-with latest as (
-    select
+WITH latest AS (
+    SELECT
         account_id,
         customer_id, 
         account_type,
         balance,
         created_at,
-        dbt_valid_from as effective_from,
-        dbt_valid_to as effective_to,
-        case when dbt_valid_to is null then true else false end as is_current
-    from {{ ref('accounts_snapshot')}}
+        dbt_valid_from AS effective_from,
+        COALESCE(dbt_valid_to, '9999-12-31'::timestamp) AS effective_to,
+        CASE WHEN dbt_valid_to IS NULL THEN TRUE ELSE FALSE END AS is_current
+    FROM {{ ref('accounts_snapshot') }}
 )
 
-select * from latest
+SELECT * FROM latest
