@@ -73,8 +73,10 @@ try:
                 
                 if record_data:
                     record_data['cdc_operation'] = operation
-                    record_data['stream_timestamp'] = datetime.now().isoformat()
-                    buffer[topic].append(record_data)
+                    # FIX: Use timezone-aware UTC time
+                    from datetime import timezone
+                    record_data['stream_timestamp'] = datetime.now(timezone.utc).isoformat()
+                    buffer[topic].append(record_data)               
 
         # Now this check runs even if no NEW messages arrived this second
         current_time = time.time()

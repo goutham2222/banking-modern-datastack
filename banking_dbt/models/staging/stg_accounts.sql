@@ -8,8 +8,9 @@ with raw_data as (
         v:balance::float as balance,
         v:currency::string as currency,
         v:cdc_operation::string as cdc_op,
-        v:stream_timestamp::timestamp as stream_ts,
-        v:created_at::timestamp as created_at
+        -- Use timestamp_ntz to prevent Snowflake session offsets
+        v:stream_timestamp::timestamp_ntz as stream_ts,
+        v:created_at::timestamp_ntz as created_at
     from {{ source('raw', 'accounts') }}
 ),
 
@@ -33,4 +34,4 @@ select
     stream_ts as load_timestamp
 from ranked
 where rn = 1
-  and cdc_op != 'd'
+  and cdc_op != 'd' -- Filter out Debezium/Streamer delete flags

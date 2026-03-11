@@ -36,7 +36,7 @@ def download_and_archive_minio():
         aws_secret_access_key=MINIO_SECRET_KEY
     )
     
-    partition_date = datetime.now().strftime('%Y-%m-%d')
+    partition_date = datetime.utcnow().strftime('%Y-%m-%d')
     downloaded_files = {t: [] for t in TABLES}
     
     for table in TABLES:

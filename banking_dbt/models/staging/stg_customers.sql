@@ -6,9 +6,9 @@ with raw_data as (
         v:first_name::string as first_name,
         v:last_name::string as last_name,
         v:email::string as email,
-        v:cdc_operation::string as cdc_op, -- Use the new metadata
-        v:stream_timestamp::timestamp as stream_ts, -- Use the new metadata
-        v:created_at::timestamp as created_at
+        v:cdc_operation::string as cdc_op,
+        v:stream_timestamp::timestamp_ntz as stream_ts,
+        v:created_at::timestamp_ntz as created_at
     from {{ source('raw', 'customers') }}
 ),
 
@@ -17,7 +17,7 @@ ranked as (
         *,
         row_number() over (
             partition by customer_id 
-            order by stream_ts desc -- Order by the most recent stream event
+            order by stream_ts desc
         ) as rn
     from raw_data
 )
