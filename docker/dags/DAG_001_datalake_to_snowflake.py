@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import boto3
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import snowflake.connector
 
 load_dotenv()
@@ -24,7 +24,8 @@ SNOWFLAKE_CONN = {
     "schema": os.getenv("SNOWFLAKE_SCHEMA"),
 }
 
-TABLES = ['customers', 'accounts', 'transactions']
+# UPDATED: Added new tables to the processing list
+TABLES = ['customers', 'accounts', 'transactions', 'locations', 'merchants']
 
 def download_and_archive_minio():
     """Downloads files from landing, then moves them to partitioned archives."""
@@ -36,11 +37,11 @@ def download_and_archive_minio():
         aws_secret_access_key=MINIO_SECRET_KEY
     )
     
-    partition_date = datetime.utcnow().strftime('%Y-%m-%d')
+    # Use timezone-aware UTC for partitioning
+    partition_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     downloaded_files = {t: [] for t in TABLES}
     
     for table in TABLES:
-        # Check the flat landing prefix (e.g., 'customers/')
         prefix = f"{table}/"
         resp = s3.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=prefix, Delimiter='/')
         
@@ -49,7 +50,7 @@ def download_and_archive_minio():
 
         for obj in resp['Contents']:
             key = obj['Key']
-            if key == prefix: continue # Skip the directory prefix itself
+            if key == prefix: continue 
             
             filename = os.path.basename(key)
             local_path = os.path.join(LOCAL_DIR, filename)
@@ -90,11 +91,10 @@ def load_to_snowflake(**kwargs):
                 continue
             
             # Step A: Bulk PUT all files for this table into its named stage
-            # We use the specific local paths gathered in the download step
             for f in files:
                 cur.execute(f"PUT file://{f} @%{table} AUTO_COMPRESS=TRUE")
             
-            # Step B: Single Bulk COPY for the whole table
+            # Step B: Single Bulk COPY for the whole table (Loading into VARIANT column 'v')
             copy_sql = f"""
             COPY INTO {table} (v)
             FROM @%{table}
@@ -122,7 +122,7 @@ default_args = {
 
 with DAG(
     dag_id="minio_to_snowflake_banking",
-    schedule_interval="*/2 * * * *", # Every 2 mins to give Snowflake breathing room
+    schedule_interval="*/2 * * * *", 
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,

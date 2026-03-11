@@ -5,7 +5,7 @@
         target_schema='ANALYTICS',
         unique_key='account_id',
         strategy='check',
-        check_cols=['customer_id', 'account_type', 'balance'],
+        check_cols=['customer_id', 'account_type', 'balance', 'account_status'],
         updated_at='load_timestamp'
     )
 }}

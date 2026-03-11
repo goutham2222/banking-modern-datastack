@@ -21,11 +21,10 @@ connector_config = {
         "database.password": os.getenv("POSTGRES_PASSWORD"),
         "database.dbname": os.getenv("POSTGRES_DB"),
         "topic.prefix": "banking_server",
-        "table.include.list": "public.customers,public.accounts,public.transactions",
+        "table.include.list": "public.customers,public.accounts,public.transactions,public.locations,public.merchants",
         "plugin.name": "pgoutput",
         "slot.name": "banking_slot_final",
         "publication.name": "banking_pub_final",
-        "publication.autocreate.mode": "filtered",
         "tombstones.on.delete": "false",
         "decimal.handling.mode": "double",
     },
@@ -34,8 +33,11 @@ connector_config = {
 # -----------------------------
 # Send request to Debezium Connect
 # -----------------------------
+# Tip: Use the DELETE method first if you need to recreate an existing connector with new config
 url = "http://localhost:8083/connectors"
 headers = {"Content-Type": "application/json"}
+
+# Optional: requests.delete(f"{url}/postgres-connector") 
 
 response = requests.post(url, headers=headers, data=json.dumps(connector_config))
 
@@ -45,6 +47,6 @@ response = requests.post(url, headers=headers, data=json.dumps(connector_config)
 if response.status_code == 201:
     print("✅ Connector created successfully!")
 elif response.status_code == 409:
-    print("⚠️ Connector already exists.")
+    print("⚠️ Connector already exists. You may need to delete and recreate it to apply changes.")
 else:
     print(f"❌ Failed to create connector ({response.status_code}): {response.text}")
