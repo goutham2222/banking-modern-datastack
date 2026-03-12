@@ -5,6 +5,7 @@ WITH latest AS (
         account_id,
         customer_id, 
         account_type,
+        account_status,
         balance,
         created_at,
         dbt_valid_from AS effective_from,
