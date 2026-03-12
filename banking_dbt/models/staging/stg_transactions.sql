@@ -1,10 +1,17 @@
-{{ config(materialized = 'view') }}
+{{ config(
+    materialized = 'view'
+) }}
 
 with raw_data as (
     select
         v:id::string as transaction_id,
         v:account_id::string as account_id,
-        v:merchant_id::int as merchant_id,
+        case 
+            when v:merchant_id is not null then v:merchant_id::int
+            when v:transaction_type::string = 'DEPOSIT' then -1
+            when v:transaction_type::string = 'TRANSFER' then -2
+            else 0
+        end as merchant_id,
         v:amount::float as amount,
         v:transaction_type::string as transaction_type,
         v:related_account_id::string as related_account_id,
@@ -19,7 +26,10 @@ with raw_data as (
 deduplicated as (
     select
         *,
-        row_number() over(partition by transaction_id order by stream_ts desc) as rn
+        row_number() over(
+            partition by transaction_id 
+            order by stream_ts desc
+        ) as rn
     from raw_data
 )
 
