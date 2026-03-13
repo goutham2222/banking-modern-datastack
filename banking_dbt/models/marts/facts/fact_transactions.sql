@@ -22,7 +22,9 @@ SELECT
     t.transaction_type,
     t.is_high_value,
     t.transaction_time,
-    SYSDATE()::timestamp_ntz AS load_timestamp 
+    t.cdc_op,
+    t.stream_ts,
+    SYSDATE()::timestamp_ntz AS dbt_run_at 
 FROM transactions t
 LEFT JOIN accounts a
     ON t.account_id = a.account_id

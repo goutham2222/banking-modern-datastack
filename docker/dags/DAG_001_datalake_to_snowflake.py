@@ -6,6 +6,7 @@ from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta, timezone
 import snowflake.connector
 
+# Load environment variables from .env
 load_dotenv()
 
 # --- Configuration ---
@@ -24,8 +25,32 @@ SNOWFLAKE_CONN = {
     "schema": os.getenv("SNOWFLAKE_SCHEMA"),
 }
 
-# UPDATED: Added new tables to the processing list
 TABLES = ['customers', 'accounts', 'transactions', 'locations', 'merchants']
+
+# --- Tasks ---
+
+def init_snowflake_infrastructure():
+    """Ensures Database, Schemas, and Variant tables exist before loading."""
+    conn = snowflake.connector.connect(**SNOWFLAKE_CONN)
+    cur = conn.cursor()
+    
+    try:
+        # 1. Create Database and Schemas
+        cur.execute(f"CREATE DATABASE IF NOT EXISTS {SNOWFLAKE_CONN['database']}")
+        cur.execute(f"CREATE SCHEMA IF NOT EXISTS {SNOWFLAKE_CONN['database']}.RAW")
+        cur.execute(f"CREATE SCHEMA IF NOT EXISTS {SNOWFLAKE_CONN['database']}.ANALYTICS")
+        
+        # 2. Use the correct context
+        cur.execute(f"USE SCHEMA {SNOWFLAKE_CONN['database']}.RAW")
+        
+        # 3. Create Tables with Variant column 'v'
+        for table in TABLES:
+            cur.execute(f"CREATE TABLE IF NOT EXISTS {table} (v variant)")
+            
+        print("✅ Snowflake Infrastructure Verified/Created")
+    finally:
+        cur.close()
+        conn.close()
 
 def download_and_archive_minio():
     """Downloads files from landing, then moves them to partitioned archives."""
@@ -37,7 +62,6 @@ def download_and_archive_minio():
         aws_secret_access_key=MINIO_SECRET_KEY
     )
     
-    # Use timezone-aware UTC for partitioning
     partition_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     downloaded_files = {t: [] for t in TABLES}
     
@@ -55,11 +79,9 @@ def download_and_archive_minio():
             filename = os.path.basename(key)
             local_path = os.path.join(LOCAL_DIR, filename)
             
-            # 1. Download to Local
             s3.download_file(MINIO_BUCKET, key, local_path)
             downloaded_files[table].append(local_path)
             
-            # 2. Archive Logic: Move to archives/{table}/{date}/{file}
             archive_key = f"archives/{table}/{partition_date}/{filename}"
             s3.copy_object(
                 Bucket=MINIO_BUCKET,
@@ -67,7 +89,6 @@ def download_and_archive_minio():
                 Key=archive_key
             )
             
-            # 3. Clean Landing Zone
             s3.delete_object(Bucket=MINIO_BUCKET, Key=key)
             print(f"✅ Processed and Archived: {key} -> {archive_key}")
             
@@ -86,6 +107,9 @@ def load_to_snowflake(**kwargs):
     cur = conn.cursor()
 
     try:
+        # Ensure we are in the RAW schema for the load
+        cur.execute(f"USE SCHEMA {SNOWFLAKE_CONN['database']}.RAW")
+
         for table, files in files_map.items():
             if not files:
                 continue
@@ -94,7 +118,7 @@ def load_to_snowflake(**kwargs):
             for f in files:
                 cur.execute(f"PUT file://{f} @%{table} AUTO_COMPRESS=TRUE")
             
-            # Step B: Single Bulk COPY for the whole table (Loading into VARIANT column 'v')
+            # Step B: Single Bulk COPY for the whole table
             copy_sql = f"""
             COPY INTO {table} (v)
             FROM @%{table}
@@ -122,11 +146,18 @@ default_args = {
 
 with DAG(
     dag_id="minio_to_snowflake_banking",
+    description="Automated Snowflake Infra Setup and MinIO to Snowflake Parquet Loading",
     schedule_interval="*/2 * * * *", 
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
+    default_args=default_args,
 ) as dag:
+
+    task_init = PythonOperator(
+        task_id="initialize_snowflake",
+        python_callable=init_snowflake_infrastructure
+    )
 
     task_download = PythonOperator(
         task_id="download_minio",
@@ -138,4 +169,5 @@ with DAG(
         python_callable=load_to_snowflake
     )
 
-    task_download >> task_load
+    # Dependency Chain
+    task_init >> task_download >> task_load

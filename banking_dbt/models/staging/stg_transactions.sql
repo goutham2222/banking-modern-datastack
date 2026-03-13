@@ -43,7 +43,8 @@ select
     status,
     is_high_value,
     transaction_time,
-    stream_ts as load_timestamp
+    cdc_op,
+    stream_ts
 from deduplicated
 where rn = 1
   and (cdc_op = 'c' or cdc_op = 'r')
