@@ -16,7 +16,7 @@ with raw_data as (
         v:employment_status::string as employment_status,
         v:cdc_operation::string as cdc_op,
         v:stream_timestamp::timestamp_ntz as stream_ts,
-        v:created_at::timestamp_ntz as created_at
+        to_timestamp_ntz(v:created_at::int, 6) as created_at
     from {{ source('raw', 'customers') }}
 ),
 

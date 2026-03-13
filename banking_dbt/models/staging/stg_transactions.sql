@@ -19,7 +19,7 @@ with raw_data as (
         v:is_high_value::boolean as is_high_value,
         v:cdc_operation::string as cdc_op,
         v:stream_timestamp::timestamp_ntz as stream_ts,
-        v:created_at::timestamp_ntz as transaction_time
+        to_timestamp_ntz(v:created_at::int, 6) as transaction_time
     from {{ source('raw', 'transactions') }}
 ),
 

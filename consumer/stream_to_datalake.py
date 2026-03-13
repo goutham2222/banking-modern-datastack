@@ -84,7 +84,7 @@ try:
                 
                 if record_data:
                     record_data['cdc_operation'] = operation
-                    record_data['stream_timestamp'] = datetime.now(timezone.utc).isoformat()
+                    record_data['stream_timestamp'] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
                     buffer[topic].append(record_data)               
 
         current_time = time.time()
