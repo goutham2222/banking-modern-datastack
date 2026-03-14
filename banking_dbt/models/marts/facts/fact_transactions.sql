@@ -1,14 +1,13 @@
-{{ config(
-    materialized = 'incremental', 
-    unique_key = 'transaction_id'
-) }}
+{{ config(materialized = 'incremental', unique_key = 'transaction_id') }}
 
 WITH transactions AS (
     SELECT * FROM {{ ref('stg_transactions') }}
 ),
 
 accounts AS (
-    SELECT account_id, customer_id FROM {{ ref('stg_accounts') }}
+    -- Use the dimension table to ensure we match to the most current customer info
+    SELECT account_id, customer_id FROM {{ ref('dim_accounts') }}
+    WHERE is_current = TRUE
 )
 
 SELECT 

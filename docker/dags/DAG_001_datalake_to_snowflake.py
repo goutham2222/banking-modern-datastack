@@ -1,12 +1,13 @@
 import os
-from dotenv import load_dotenv
+import shutil
 import boto3
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from datetime import datetime, timedelta, timezone
 import snowflake.connector
+from airflow import DAG
+from airflow.operators.python import PythonOperator, BranchPythonOperator
+from airflow.operators.empty import EmptyOperator
+from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
 
-# Load environment variables from .env
 load_dotenv()
 
 # --- Configuration ---
@@ -29,48 +30,59 @@ TABLES = ['customers', 'accounts', 'transactions', 'locations', 'merchants']
 
 # --- Tasks ---
 
-def init_snowflake_infrastructure():
-    """Ensures Database, Schemas, and Variant tables exist before loading."""
+def check_infra_exists():
+    """Checks Snowflake for the existence of the RAW schema to decide if init is needed."""
     conn = snowflake.connector.connect(**SNOWFLAKE_CONN)
     cur = conn.cursor()
-    
     try:
-        # 1. Create Database and Schemas
+        cur.execute(f"SHOW SCHEMAS LIKE 'RAW' IN DATABASE {SNOWFLAKE_CONN['database']}")
+        result = cur.fetchone()
+        if result:
+            return "skip_init"
+        return "initialize_snowflake"
+    finally:
+        cur.close()
+        conn.close()
+
+def init_snowflake_infrastructure():
+    """Runs DDL to create Database, Schemas, and Variant tables with dedicated Stages."""
+    conn = snowflake.connector.connect(**SNOWFLAKE_CONN)
+    cur = conn.cursor()
+    try:
         cur.execute(f"CREATE DATABASE IF NOT EXISTS {SNOWFLAKE_CONN['database']}")
         cur.execute(f"CREATE SCHEMA IF NOT EXISTS {SNOWFLAKE_CONN['database']}.RAW")
         cur.execute(f"CREATE SCHEMA IF NOT EXISTS {SNOWFLAKE_CONN['database']}.ANALYTICS")
-        
-        # 2. Use the correct context
         cur.execute(f"USE SCHEMA {SNOWFLAKE_CONN['database']}.RAW")
         
-        # 3. Create Tables with Variant column 'v'
         for table in TABLES:
-            cur.execute(f"CREATE TABLE IF NOT EXISTS {table} (v variant)")
-            
-        print("✅ Snowflake Infrastructure Verified/Created")
+            t_upper = table.upper()
+            # 1. Create the Raw Table
+            cur.execute(f"CREATE TABLE IF NOT EXISTS {t_upper} (v variant)")
+            # 2. Create a Named Stage (Avoids quoting errors with @% syntax)
+            cur.execute(f"CREATE STAGE IF NOT EXISTS STAGE_{t_upper}")
+        print("✅ Tables and Named Stages verified.")
     finally:
         cur.close()
         conn.close()
 
 def download_and_archive_minio():
-    """Downloads files from landing, then moves them to partitioned archives."""
+    """Handles Pre-Cleanup of local storage and moves data from Landing to Archive."""
+    if os.path.exists(LOCAL_DIR):
+        shutil.rmtree(LOCAL_DIR)
     os.makedirs(LOCAL_DIR, exist_ok=True)
-    s3 = boto3.client(
-        's3',
-        endpoint_url=MINIO_ENDPOINT,
-        aws_access_key_id=MINIO_ACCESS_KEY,
-        aws_secret_access_key=MINIO_SECRET_KEY
-    )
+
+    s3 = boto3.client('s3', endpoint_url=MINIO_ENDPOINT, 
+                      aws_access_key_id=MINIO_ACCESS_KEY, 
+                      aws_secret_access_key=MINIO_SECRET_KEY)
     
     partition_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     downloaded_files = {t: [] for t in TABLES}
     
     for table in TABLES:
         prefix = f"{table}/"
-        resp = s3.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=prefix, Delimiter='/')
+        resp = s3.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=prefix)
         
-        if 'Contents' not in resp:
-            continue
+        if 'Contents' not in resp: continue
 
         for obj in resp['Contents']:
             key = obj['Key']
@@ -83,19 +95,13 @@ def download_and_archive_minio():
             downloaded_files[table].append(local_path)
             
             archive_key = f"archives/{table}/{partition_date}/{filename}"
-            s3.copy_object(
-                Bucket=MINIO_BUCKET,
-                CopySource={'Bucket': MINIO_BUCKET, 'Key': key},
-                Key=archive_key
-            )
-            
+            s3.copy_object(Bucket=MINIO_BUCKET, CopySource={'Bucket': MINIO_BUCKET, 'Key': key}, Key=archive_key)
             s3.delete_object(Bucket=MINIO_BUCKET, Key=key)
-            print(f"✅ Processed and Archived: {key} -> {archive_key}")
             
     return downloaded_files
 
 def load_to_snowflake(**kwargs):
-    """Optimized Bulk Load into Snowflake Stage and Table."""
+    """Performs Bulk PUT and COPY INTO operations using the Named Stages."""
     ti = kwargs['ti']
     files_map = ti.xcom_pull(task_ids='download_minio')
     
@@ -105,69 +111,53 @@ def load_to_snowflake(**kwargs):
 
     conn = snowflake.connector.connect(**SNOWFLAKE_CONN)
     cur = conn.cursor()
-
     try:
-        # Ensure we are in the RAW schema for the load
         cur.execute(f"USE SCHEMA {SNOWFLAKE_CONN['database']}.RAW")
-
         for table, files in files_map.items():
-            if not files:
-                continue
+            if not files: continue
             
-            # Step A: Bulk PUT all files for this table into its named stage
-            for f in files:
-                cur.execute(f"PUT file://{f} @%{table} AUTO_COMPRESS=TRUE")
+            t_upper = table.upper()
+            # We must use the name created in the init step
+            stage_name = f"STAGE_{t_upper}"
             
-            # Step B: Single Bulk COPY for the whole table
-            copy_sql = f"""
-            COPY INTO {table} (v)
-            FROM @%{table}
-            FILE_FORMAT = (TYPE = PARQUET)
-            PURGE = TRUE;
-            """
-            cur.execute(copy_sql)
-            print(f"🚀 Bulk Load Complete for {table}")
-
-            # Step C: Cleanup Local Airflow Storage
             for f in files:
-                if os.path.exists(f):
-                    os.remove(f)
+                # Use @STAGE_NAME (Named Stage) instead of @% (Table Stage)
+                cur.execute(f"PUT file://{f} @{stage_name} AUTO_COMPRESS=TRUE")
+            
+            # COPY INTO from the Named Stage
+            cur.execute(f"COPY INTO {t_upper} (v) FROM @{stage_name} FILE_FORMAT = (TYPE = PARQUET) PURGE = TRUE")
+            
+            print(f"🚀 Bulk Load Complete for {t_upper}")
 
+            for f in files:
+                if os.path.exists(f): os.remove(f)
     finally:
         cur.close()
         conn.close()
 
 # --- DAG Definition ---
-default_args = {
-    "owner": "airflow",
-    "retries": 1,
-    "retry_delay": timedelta(minutes=1),
-}
 
 with DAG(
     dag_id="minio_to_snowflake_banking",
-    description="Automated Snowflake Infra Setup and MinIO to Snowflake Parquet Loading",
     schedule_interval="*/2 * * * *", 
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
-    default_args=default_args,
+    default_args={"owner": "airflow", "retries": 1, "retry_delay": timedelta(minutes=1)}
 ) as dag:
 
-    task_init = PythonOperator(
-        task_id="initialize_snowflake",
-        python_callable=init_snowflake_infrastructure
-    )
+    task_check_infra = BranchPythonOperator(task_id="check_infra", python_callable=check_infra_exists)
+    task_init = PythonOperator(task_id="initialize_snowflake", python_callable=init_snowflake_infrastructure)
+    task_skip_init = EmptyOperator(task_id="skip_init")
 
     task_download = PythonOperator(
-        task_id="download_minio",
-        python_callable=download_and_archive_minio
+        task_id="download_minio", 
+        python_callable=download_and_archive_minio,
+        trigger_rule="none_failed_min_one_success"
     )
 
-    task_load = PythonOperator(
-        task_id="load_snowflake",
-        python_callable=load_to_snowflake
-    )
+    task_load = PythonOperator(task_id="load_snowflake", python_callable=load_to_snowflake)
 
     # Dependency Chain
-    task_init >> task_download >> task_load
+    task_check_infra >> [task_init, task_skip_init]
+    [task_init, task_skip_init] >> task_download >> task_load
