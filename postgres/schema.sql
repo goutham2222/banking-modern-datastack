@@ -1,3 +1,4 @@
+-- 1. Locations
 CREATE TABLE IF NOT EXISTS locations (
     zip_code VARCHAR(10) PRIMARY KEY,
     city VARCHAR(100) NOT NULL,
@@ -13,7 +14,7 @@ CREATE TABLE IF NOT EXISTS merchants (
     category VARCHAR(100) NOT NULL
 );
 
--- 3. Customers (Added birth_date)
+-- 3. Customers
 CREATE TABLE IF NOT EXISTS customers (
     id SERIAL PRIMARY KEY,
     first_name VARCHAR(100) NOT NULL,
