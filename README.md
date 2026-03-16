@@ -89,6 +89,7 @@ erDiagram
         BOOLEAN is_high_value
         TIMESTAMP created_at
     }
+```
 
 ## 4. Technical Deep-Dive
 
