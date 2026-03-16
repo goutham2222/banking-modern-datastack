@@ -193,9 +193,12 @@ def generate_transactions(conn, cur):
         elif t_type in ['ZELLE', 'ACH', 'WIRE']:
             m_id = -3 if t_type == 'ZELLE' else -4 if t_type == 'ACH' else -5
             
-            if t_type == 'ZELLE': amount = Decimal(random.uniform(10, 1500))
-            elif t_type == 'ACH': amount = Decimal(random.uniform(2000, 10000))
-            else: amount = Decimal(random.uniform(10001, 50000)) # Wire Transfer
+            if t_type == 'ZELLE': 
+                amount = Decimal(random.uniform(10, 1500))
+            elif t_type == 'ACH': 
+                amount = Decimal(random.uniform(2000, 10000))
+            else: 
+                amount = Decimal(random.uniform(10001, 50000)) # Wire Transfer
             
             if random.random() >= 0.5: 
                 rel_acc_id = random.choice([a[0] for a in active_accounts if a[0] != acc_id])
@@ -216,7 +219,8 @@ def generate_transactions(conn, cur):
                     cur.execute("UPDATE accounts SET balance = balance - %s WHERE id = %s AND balance >= %s", (amount, acc_id, amount))
                     if cur.rowcount > 0:
                         # SUCCESS: Balances adjusted and recipient credited if internal
-                        if rel_acc_id: cur.execute("UPDATE accounts SET balance = balance + %s WHERE id = %s", (amount, rel_acc_id))
+                        if rel_acc_id: 
+                            cur.execute("UPDATE accounts SET balance = balance + %s WHERE id = %s", (amount, rel_acc_id))
                         cur.execute("INSERT INTO transactions (account_id, merchant_id, transaction_type, amount, related_account_id, status, is_high_value) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                                     (acc_id, m_id, t_type, amount, rel_acc_id, 'COMPLETED', is_hv))
                     else:
@@ -251,13 +255,17 @@ if __name__ == "__main__":
     cur.execute("SELECT COUNT(*) FROM customers")
     if cur.fetchone()[0] < INITIAL_POOL_CUSTOMERS:
         print(f"🚀 Initializing bank with {INITIAL_POOL_CUSTOMERS} customers...")
-        for _ in range(INITIAL_POOL_CUSTOMERS): create_customer(cur, conn); conn.commit()
+        for _ in range(INITIAL_POOL_CUSTOMERS): 
+            create_customer(cur, conn); 
+            conn.commit()
         
     try:
         while True:
             # Randomly add new customers to simulate organic bank growth
             if random.random() < NEW_CUSTOMER_CHANCE: 
-                create_customer(cur, conn); conn.commit(); print("🆕 Customer joined.")
+                create_customer(cur, conn); 
+                conn.commit(); 
+                print("🆕 Customer joined.")
 
             # New Accounts for Existing Customers
             if random.random() < NEW_ACCOUNT_CHANCE:
@@ -271,4 +279,5 @@ if __name__ == "__main__":
             print(f"🏦 Ticked at {datetime.now().strftime('%H:%M:%S')}")
             time.sleep(SLEEP_TIME)
     except KeyboardInterrupt:
-        cur.close(); conn.close()
+        cur.close(); 
+        conn.close()

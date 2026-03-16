@@ -82,11 +82,13 @@ def download_and_archive_minio():
         prefix = f"{table}/"
         resp = s3.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=prefix)
         
-        if 'Contents' not in resp: continue
+        if 'Contents' not in resp: 
+            continue
 
         for obj in resp['Contents']:
             key = obj['Key']
-            if key == prefix: continue 
+            if key == prefix: 
+                continue 
             
             filename = os.path.basename(key)
             local_path = os.path.join(LOCAL_DIR, filename)
