@@ -52,7 +52,8 @@ def get_db_connection():
 def is_payday():
     """Returns True if today is a standard banking payday (1st, 15th, or last biz day)."""
     today = datetime.now()
-    if today.day in [1, 15]: return True
+    if today.day in [1, 15]: 
+        return True
     last_day = (today.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
     offset = max(0, (last_day.weekday() - 4))
     return today.date() == (last_day - timedelta(days=offset)).date()
@@ -146,7 +147,8 @@ def create_customer(cur, conn):
             continue
 
 def create_account(cur, customer_id, balance=None):
-    if balance is None: balance = Decimal(random.randint(500, 5000))
+    if balance is None: 
+        balance = Decimal(random.randint(500, 5000))
     cur.execute("INSERT INTO accounts (customer_id, account_type, balance) VALUES (%s, %s, %s)",
                 (customer_id, random.choices(['SAVINGS', 'CHECKING'], weights=[0.3, 0.7])[0], balance))
 

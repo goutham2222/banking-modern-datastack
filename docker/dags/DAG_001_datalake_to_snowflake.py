@@ -114,7 +114,8 @@ def load_to_snowflake(**kwargs):
     try:
         cur.execute(f"USE SCHEMA {SNOWFLAKE_CONN['database']}.RAW")
         for table, files in files_map.items():
-            if not files: continue
+            if not files: 
+                continue
             
             t_upper = table.upper()
             # We must use the name created in the init step
@@ -130,7 +131,8 @@ def load_to_snowflake(**kwargs):
             print(f"🚀 Bulk Load Complete for {t_upper}")
 
             for f in files:
-                if os.path.exists(f): os.remove(f)
+                if os.path.exists(f): 
+                    os.remove(f)
     finally:
         cur.close()
         conn.close()
