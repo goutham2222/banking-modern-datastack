@@ -5,9 +5,9 @@
 Traditional banking systems often rely on legacy batch processing, leading to "stale" data that is 24 hours behind reality. This project demonstrates a production-grade **Modern Data Stack (MDS)** that captures database transactions as they happen. By shifting to a Change Data Capture (CDC) architecture, this system provides immediate visibility into bank liquidity, high-value risk alerts, and customer behavior.
 
 **Key Achievements:**
-* [cite_start]**Real-Time Visibility:** Achieved an average end-to-end ingestion latency of **0.39s**[cite: 1].
-* [cite_start]**Financial Integrity:** Managed $17M+ in simulated assets with automated audit trails[cite: 1].
-* [cite_start]**Scalable Infrastructure:** Orchestrated a containerized ecosystem involving Kafka, Snowflake, and dbt[cite: 1].
+* **Real-Time Visibility:** Achieved an average end-to-end ingestion latency of **0.39s**.
+* **Financial Integrity:** Managed $17M+ in simulated assets with automated audit trails.
+* **Scalable Infrastructure:** Orchestrated a containerized ecosystem involving Kafka, Snowflake, and dbt.
 
 ---
 
@@ -16,12 +16,12 @@ Traditional banking systems often rely on legacy batch processing, leading to "s
 
 This pipeline follows a **Modular ELT (Extract, Load, Transform)** pattern, moving data from a transactional source to an analytical warehouse.
 
-* [cite_start]**Source Layer:** A **PostgreSQL** instance serves as the transactional heart of the bank, with a custom Python data generator simulating high-velocity banking activity[cite: 1].
-* [cite_start]**Ingestion Layer (CDC):** **Debezium** monitors the Postgres WAL (Write Ahead Log), capturing row-level changes and publishing them to **Kafka**[cite: 1].
-* [cite_start]**Storage Layer (Data Lake):** A **Python Kafka Consumer** batches events into **Parquet** files and flushes them to **MinIO** (S3-compatible storage) using a dual-trigger logic[cite: 1].
-* **Warehouse Layer:** **Snowflake** acts as the centralized analytical store. [cite_start]**Airflow** DAGs orchestrate the bulk loading of raw data into `VARIANT` tables[cite: 1].
-* [cite_start]**Transformation Layer:** **dbt** (data build tool) transforms semi-structured raw data into a clean Star Schema, implementing **SCD Type 2 snapshots** to track historical customer wealth changes[cite: 1].
-* [cite_start]**Visualization Layer:** **Power BI** delivers real-time dashboards for Executive Strategy, Merchant Intelligence, and Risk Management[cite: 1].
+* **Source Layer:** A **PostgreSQL** instance serves as the transactional heart of the bank, with a custom Python data generator simulating high-velocity banking activity.
+* **Ingestion Layer (CDC):** **Debezium** monitors the Postgres WAL (Write Ahead Log), capturing row-level changes and publishing them to **Kafka**.
+* **Storage Layer (Data Lake):** A **Python Kafka Consumer** batches events into **Parquet** files and flushes them to **MinIO** (S3-compatible storage) using a dual-trigger logic.
+* **Warehouse Layer:** **Snowflake** acts as the centralized analytical store. **Airflow** DAGs orchestrate the bulk loading of raw data into `VARIANT` tables.
+* **Transformation Layer:** **dbt** (data build tool) transforms semi-structured raw data into a clean Star Schema, implementing **SCD Type 2 snapshots** to track historical customer wealth changes.
+* **Visualization Layer:** **Power BI** delivers real-time dashboards for Executive Strategy, Merchant Intelligence, and Risk Management.
 
 ---
 
@@ -96,10 +96,10 @@ erDiagram
 ### 🏗️ Streaming & Ingestion Logic
 The heart of the ingestion layer is a custom Python Kafka Consumer that bridges the gap between a high-velocity message bus and a Parquet-based Data Lake.
 
-* [cite_start]**CDC (Change Data Capture) Implementation**: Leveraged Debezium to stream row-level changes from PostgreSQL, ensuring that every `INSERT`, `UPDATE`, and `READ` event is captured with full context[cite: 1].
+* **CDC (Change Data Capture) Implementation**: Leveraged Debezium to stream row-level changes from PostgreSQL, ensuring that every `INSERT`, `UPDATE`, and `READ` event is captured with full context.
 * **Throughput vs. Latency Balancing**: 
     * **The Problem**: High-volume transaction flushes were forcing low-volume tables (like `customers`) to create many tiny, inefficient Parquet files in MinIO. 
-    * **The Solution**: Engineered a **Dual-Trigger Flush** mechanism in the Python consumer. [cite_start]Data is committed to storage only when a buffer of 300 records is met **OR** a 30-second timer expires[cite: 1]. This ensures high-volume data moves fast while low-volume metadata remains current without taxing the storage layer.
+    * **The Solution**: Engineered a **Dual-Trigger Flush** mechanism in the Python consumer. Data is committed to storage only when a buffer of 300 records is met **OR** a 30-second timer expires. This ensures high-volume data moves fast while low-volume metadata remains current without taxing the storage layer.
 
 ### ❄️ Snowflake & dbt Transformation
 Once data lands in Snowflake's `RAW` schema as semi-structured `VARIANT` types, it undergoes a multi-stage transformation.
