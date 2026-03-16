@@ -107,15 +107,6 @@ Once data lands in Snowflake's `RAW` schema as semi-structured `VARIANT` types, 
 * **SCD Type 2 Snapshots**: Implemented `dbt snapshot` logic to track historical changes in customer profiles (e.g., changes in marital status or income category) and account states.
 * **Late-Binding Facts**: The `fact_transactions` table utilizes incremental materialization to process millions of records efficiently, joining against the `is_current` flag of dimension tables to ensure transactions are attributed to the correct customer profile at the time of occurrence.
 
-### 🛠️ Engineering Problem/Solution Log
-
-| Area | The Problem | The Solution |
-| :--- | :--- | :--- |
-| **Data Types** | Unique IDs were sorting as Text (1, 10, 11, 2), breaking logical order in dashboards. | Transformed ID columns to `Whole Number` in the modeling layer to ensure correct numerical sorting. |
-| **Geo-Spatial** | Map visuals appeared blank despite having valid State Name data. | Updated Column "Data Category" to `State or Province`, explicitly enabling the geocoding engine. |
-| **Real-Time Noise** | Plotting 2-second data created a "solid block" visual that hid trends. | Implemented a "Continuous" axis and Zoom Sliders to allow stakeholders to toggle between high-level and granular views. |
-| **DAX Constraints** | Web-based Power BI limited "Group/Bin" features for time-series smoothing. | Engineered a custom DAX column using `TIME(HOUR(), MINUTE(), 0)` to bucket high-velocity streams into 1-minute intervals. |
-
 ## 5. The Analytics Suite
 
 The final layer of the stack is a 5-page Executive Analytics suite, designed to provide specialized insights for different banking departments.
