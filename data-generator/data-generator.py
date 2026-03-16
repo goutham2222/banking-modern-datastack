@@ -256,15 +256,15 @@ if __name__ == "__main__":
     if cur.fetchone()[0] < INITIAL_POOL_CUSTOMERS:
         print(f"🚀 Initializing bank with {INITIAL_POOL_CUSTOMERS} customers...")
         for _ in range(INITIAL_POOL_CUSTOMERS): 
-            create_customer(cur, conn); 
+            create_customer(cur, conn)
             conn.commit()
         
     try:
         while True:
             # Randomly add new customers to simulate organic bank growth
             if random.random() < NEW_CUSTOMER_CHANCE: 
-                create_customer(cur, conn); 
-                conn.commit(); 
+                create_customer(cur, conn)
+                conn.commit()
                 print("🆕 Customer joined.")
 
             # New Accounts for Existing Customers
@@ -279,5 +279,5 @@ if __name__ == "__main__":
             print(f"🏦 Ticked at {datetime.now().strftime('%H:%M:%S')}")
             time.sleep(SLEEP_TIME)
     except KeyboardInterrupt:
-        cur.close(); 
+        cur.close()
         conn.close()
