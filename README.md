@@ -5,7 +5,7 @@
 Traditional banking systems often rely on legacy batch processing, leading to "stale" data that is 24 hours behind reality. This project demonstrates a production-grade **Modern Data Stack (MDS)** that captures database transactions as they happen. By shifting to a Change Data Capture (CDC) architecture, this system provides immediate visibility into bank liquidity, high-value risk alerts, and customer behavior.
 
 **Key Achievements:**
-* **Real-Time Visibility:** Achieved an average end-to-end ingestion latency of **0.39s**.
+* **Real-Time Visibility:** Achieved a **0.39s** average ingestion latency from PostgreSQL to the Data Lake.
 * **Financial Integrity:** Managed $17M+ in simulated assets with automated audit trails.
 * **Scalable Infrastructure:** Orchestrated a containerized ecosystem involving Kafka, Snowflake, and dbt.
 
@@ -139,4 +139,4 @@ The final layer of the stack is a 5-page Executive Analytics suite, designed to 
 ![Pipeline Health Dashboard](assets/Data%20Pipeline%20health.png)
 * **Stakeholder Focus**: Data Engineering Team.
 * **Key Insights**: Real-time monitoring of the ingestion engine.
-* **Feature**: A Gauge visual tracking **Ingestion Latency**, which currently maintains an elite benchmark of **0.39s** from Postgres to the dashboard.
+* **Feature**: A Gauge visual tracking **Ingestion Latency**, which currently maintains an elite benchmark of **0.39s** from Postgres to the Data Lake (MinIO).
