@@ -6,7 +6,7 @@ Traditional banking systems often rely on legacy batch processing, leading to "s
 
 **Key Achievements:**
 * **Real-Time Visibility:** Achieved a **0.39s** average ingestion latency from PostgreSQL to the Data Lake.
-* **Financial Integrity:** Managed $17M+ in simulated assets with automated audit trails.
+* **Financial Integrity:** Managed $238M+ in simulated assets with automated audit trails.
 * **Scalable Infrastructure:** Orchestrated a containerized ecosystem involving Kafka, Snowflake, and dbt.
 
 ---
