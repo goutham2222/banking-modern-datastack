@@ -2,7 +2,15 @@
 *An event-driven Modern Data Stack (MDS) designed for sub-second financial intelligence.*
 
 ## 1. Executive Summary
-Traditional banking systems often rely on legacy batch processing, leading to "stale" data that is 24 hours behind reality. This project demonstrates a production-grade **Modern Data Stack (MDS)** that captures database transactions as they happen. By shifting to a Change Data Capture (CDC) architecture, this system provides immediate visibility into bank liquidity, high-value risk alerts, and customer behavior.
+Traditional banking systems often rely on legacy batch processing, leading to "stale" data that is 24 hours behind reality. This project implements a **Production-Modeled Architecture**—an event-driven Modern Data Stack (MDS) designed to capture database transactions as they happen. By shifting to a **Change Data Capture (CDC)** architecture, this system provides immediate visibility into bank liquidity, high-value risk alerts, and customer behavior.
+
+### 🛠️ Tech Stack
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Kafka](https://img.shields.io/badge/Apache%20Kafka-231F20?style=for-the-badge&logo=apache-kafka&logoColor=white)
+![Snowflake](https://img.shields.io/badge/Snowflake-29B5E8?style=for-the-badge&logo=snowflake&logoColor=white)
+![dbt](https://img.shields.io/badge/dbt-FF694B?style=for-the-badge&logo=dbt&logoColor=white)
+![Airflow](https://img.shields.io/badge/Airflow-017CEE?style=for-the-badge&logo=apache-airflow&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 
 **Key Achievements:**
 * **Real-Time Visibility:** Achieved a **0.39s** average ingestion latency from PostgreSQL to the Data Lake.
@@ -140,3 +148,27 @@ The final layer of the stack is a 5-page Executive Analytics suite, designed to 
 * **Stakeholder Focus**: Data Engineering Team.
 * **Key Insights**: Real-time monitoring of the ingestion engine.
 * **Feature**: A Gauge visual tracking **Ingestion Latency**, which currently maintains an elite benchmark of **0.39s** from Postgres to the Data Lake (MinIO).
+
+## 6. Setup & Installation Guide
+This project is fully containerized to ensure environment parity. Follow these steps to deploy the production-modeled banking stack locally.
+
+### 1. Environment Preparation
+* **Clone the Repository:** `git clone https://github.com/goutham2222/banking-modern-datastack`.
+* **Dependency Management:** Install required Python libraries: `pip install -r requirements.txt`.
+* **Configuration:** Create a `.env` file in the root directory to manage your **Snowflake** and **Postgres** credentials.
+
+### 2. Pipeline Execution Sequence
+1. **Spin up Infrastructure:** Execute `docker-compose up -d` to initialize the containerized ecosystem (Postgres, Kafka, Zookeeper, MinIO, and Airflow).
+2. **Establish CDC Link:** Register the Debezium connector: `python kafka-debezium/connector.py`.
+3. **Activate Data Stream:** * `python data-generator.py` (Simulates live banking transactions).
+    * `python stream_to_datalake.py` (Initiates dual-trigger ingestion to the MinIO lake).
+4. **Orchestrate Workflows:** Access the **Airflow UI** to trigger:
+    * **DAG_001:** Automates the movement of Parquet files from MinIO into Snowflake.
+    * **DAG_002:** Executes dbt transformations and SCD Type 2 snapshots.
+
+## 7. Security & Production Hardening
+While the current architecture follows production-modeled patterns , moving this to a live banking environment requires additional enterprise "hardening" to ensure data privacy and system resilience:
+
+* **PII & Data Masking:** Implementation of **Dynamic Data Masking** or hashing for sensitive customer data, such as emails and addresses, to comply with strict financial privacy laws like GDPR and CCPA.
+* **Secret Management:** Transitioning from local `.env` files to enterprise-grade solutions such as **AWS Secrets Manager** or **HashiCorp Vault** for secure credential handling.
+* **Cloud Orchestration:** Migration of containerized workloads from Docker Compose to a managed Kubernetes service like **Amazon EKS** or **Google GKE** to achieve high availability and auto-scaling.
