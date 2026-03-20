@@ -2,29 +2,32 @@
 *An event-driven platform designed for comprehensive financial intelligence and executive decision-making.*
 
 ## 1. Executive Summary
-Traditional banking systems often rely on legacy batch processing, leading to "stale" data that is 24 hours behind reality. This delay results in informed decision lag, reactive risk management, and liquidity blind spots for leadership. 
 
-This project implements a **Modern Data Stack (MDS)** designed to capture database transactions as they happen. By shifting to a **Change Data Capture (CDC)** architecture, this system provides an immutable, audit-ready pipeline that delivers immediate visibility into bank liquidity, high-value monitoring, and customer behavior.
+This project implements a **Modern Data Stack (MDS)** designed to capture and analyze high-velocity financial transactions in real-time. By shifting from traditional batch processing to a **Change Data Capture (CDC)** architecture, the system provides an immutable, audit-ready pipeline that delivers immediate visibility into bank liquidity, high-value monitoring, and customer behavior.
 
 ### 🛠️ Tech Stack
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Debezium](https://img.shields.io/badge/Debezium-942192?style=for-the-badge&logo=debezium&logoColor=white)
 ![Kafka](https://img.shields.io/badge/Apache%20Kafka-231F20?style=for-the-badge&logo=apache-kafka&logoColor=white)
+![MinIO](https://img.shields.io/badge/MinIO-C72E49?style=for-the-badge&logo=minio&logoColor=white)
 ![Snowflake](https://img.shields.io/badge/Snowflake-29B5E8?style=for-the-badge&logo=snowflake&logoColor=white)
 ![dbt](https://img.shields.io/badge/dbt-FF694B?style=for-the-badge&logo=dbt&logoColor=white)
 ![Airflow](https://img.shields.io/badge/Airflow-017CEE?style=for-the-badge&logo=apache-airflow&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![PowerBI](https://img.shields.io/badge/PowerBI-F2C811?style=for-the-badge&logo=powerbi&logoColor=white)
 
 **Key Achievements:**
 * **Operational Transparency:** Provides real-time visibility into **$238M+ in assets**, enabling immediate tracking of intraday liquidity.
 * **High-Value Monitoring:** Powers specialized dashboards to highlight transactions exceeding **$50,000**, ensuring proactive compliance oversight.
-* **Scalable Infrastructure:** Orchestrated a decoupled ecosystem involving Kafka, Snowflake, and dbt to balance ingestion speed with analytical power.
+* **Modular Ingestion:** Orchestrated a decoupled ecosystem involving Kafka, Snowflake, and dbt to balance ingestion speed with analytical power.
 
 ---
 
 ## 2. System Architecture
+
 ![System Architecture Diagram](assets/Real-Time%20Banking%20Pipeline.jpeg)
 
-This pipeline follows a **Modular ELT (Extract, Load, Transform)** pattern, designed to decouple data ingestion from business logic.
+The pipeline follows a modular **ELT (Extract, Load, Transform)** pattern, ensuring that data ingestion is decoupled from downstream business logic.
 
 * **Source Layer:** A **PostgreSQL** instance serves as the transactional "Source of Truth".
 * **Ingestion Layer (CDC):** **Debezium** monitors the Postgres Write-Ahead Log (WAL), capturing every INSERT and UPDATE as an event without impacting database performance.
@@ -36,6 +39,7 @@ This pipeline follows a **Modular ELT (Extract, Load, Transform)** pattern, desi
 ---
 
 ## 3. Data Model
+
 The underlying relational structure ensures strict financial consistency across customers, accounts, and the transactional ledger.
 
 ```mermaid
@@ -101,83 +105,90 @@ erDiagram
     }
 ```
 
+---
+
 ## 4. Technical Deep-Dive
 
-### 🏗️ Solving the "Small Files" Hurdle
-Moving to a streaming model often creates thousands of tiny, KB-sized files that cause massive I/O overhead in cloud warehouses. To solve this, the pipeline implements a custom **Dual-Trigger Flush** mechanism.
+### 🏗️ Ingestion Logic: Dual-Trigger Flush
+To balance data availability with storage efficiency, the Kafka consumer implements a custom buffering logic. A "flush" to the Data Lake is triggered when **one** of two conditions is met:
+* **Record Count**: The buffer reaches **300 records**.
+* **Time Duration**: A **30-second timer** expires.
 
-* **Logic & Tradeoff:** Data is buffered in memory and committed to the Data Lake only when the buffer reaches **300 records** OR a **30-second timer** expires.
-* **Reasoning:** This controlled micro-batching results in a massive gain in **Snowflake ingestion efficiency** by preventing the compute-heavy overhead of loading fragmented files.
+**Partitioned Storage Structure:**
+* **Topic-Based Isolation**: Each Kafka topic is mapped to its own folder in **MinIO**.
+* **Time-Series Partitioning**: During ingestion, files are organized into daily archive folders (e.g., `archives/table_name/YYYY-MM-DD/`) for efficient historical lookups.
 
 ### ❄️ Snowflake & dbt Transformation
 The system organizes data through a **Medallion Architecture**, moving from Bronze (Raw VARIANT data) to Gold (Business-ready Star Schema).
-
-* **SCD Type 2 Snapshots:** Using dbt snapshots, the system tracks historical shifts in customer profiles (e.g., changes in income or marital status) without overwriting historical records.
-* **Late-Binding Facts:** Transaction facts are joined against dimension states at query time, ensuring a transaction is linked to the customer’s exact profile state **at the moment it occurred**.
+* **SCD Type 2 Snapshots**: dbt snapshots track historical changes in customer profiles (e.g., income shifts) without overwriting records.
+* **Late-Binding Facts**: Transaction facts join against dimension states at query time, ensuring transactions link to the customer’s profile state **at the exact moment it occurred**.
 
 ### ⚙️ Operations & Quality Control
-The pipeline utilizes a **"Central Nervous System"** approach to manage complex dependencies.
+**Apache Airflow** serves as the "Central Nervous System," managing complex dependencies via modular DAGs.
+* **Ingestion (DAG_001)**: Uses `check_infra` logic to verify environment stability before automating bulk `PUT` and `COPY INTO` operations into Snowflake.
+* **Transformation (DAG_002)**: Executes dbt staging, snapshots, and mart builds followed by **dbt-test** to validate schema integrity and referential consistency.
 
-* **Orchestration:** **Apache Airflow** serves as the orchestrator, using modular DAGs to separate infrastructure health from data movement. It provides a visual map of dependencies and handles complex retry logic.
-* **Automated Testing:** Every transformation is validated via **dbt-test** for schema integrity and referential consistency before reaching the Gold layer. 
-* **CI/CD:** Automated testing via **GitHub Actions** ensures that logic updates do not introduce inaccuracies into the financial reports.
+---
 
 ## 5. The Analytics Suite
 
-The final layer of the stack is a 5-page Executive Analytics suite in **Power BI**, designed to provide specialized insights for different banking departments.
+The final layer of the stack is an Executive Analytics suite in **Power BI**, providing specialized insights across four key areas:
 
 ### 🏛️ Executive Strategy & Liquidity
 ![Executive Strategy Dashboard](assets/Executive%20Strategy.jpeg.png) 
-* **Summary:** Provides a high-level view of financial health by tracking **$238M+ in Assets Under Management (AUM)** and intraday transaction velocity.
-* **Key Insight:** Allows leadership to monitor real-time liquidity across checking and savings accounts to ensure operational stability.
+* **Insight**: Tracks **$238M+ in Assets Under Management (AUM)** and intraday transaction velocity to ensure operational stability.
 
 ### 👤 Customer 360 & Wealth Segmentation
 ![Customer 360 Dashboard](assets/Customer%20360.jpeg.png)
-* **Summary:** Offers a deep dive into user demographics and geographic distribution across North America.
-* **Key Insight:** Features high-value segmentation by comparing balances against net worth to identify **Ultra High** wealth categories for targeted banking services.
+* **Insight**: Analyzes demographics and wealth categories (Low to Ultra High), identifying high-value segments for targeted services.
 
 ### 🛍️ Commerce & Merchant Intelligence
 ![Commerce Dashboard](assets/Commerce%20&%20Merchants.png)
-* **Summary:** Analyzes market share by volume for top retailers and breaks down spending distribution by sector.
-* **Key Insight:** Tracks **Preferred Payment Rails**, showing how salary deposits and purchases constitute the majority of transaction volume.
+* **Insight**: Monitors market share for top merchants and tracks **Preferred Payment Rails** (Salary, Purchase, Wire, etc.).
 
 ### 🛡️ Portfolio Risk & Financial Crimes
 ![Portfolio Risk Dashboard](assets/Portfolio%20Risk%20&%20Financial.png)
-* **Summary:** Visualizes net capital flow and maintains a **High-Value Watchlist** for monitoring significant cash movements.
-* **Key Insight:** Highlights transactions exceeding **$50,000** within the Power BI interface and tracks system success rates to ensure audit-ready transparency.
+* **Insight**: Visualizes net capital flow and maintains a **High-Value Watchlist** for monitoring significant cash movements.
 
 ---
 
 ## 6. Setup & Installation Guide
-This project is fully containerized to ensure environment parity.
+
+This project is fully containerized using **Docker** to ensure environment parity across development and production stages.
 
 ### 1. Environment Preparation
-* **Clone the Repository:** `git clone https://github.com/goutham2222/banking-modern-datastack`.
-* **Dependency Management:** Install required Python libraries: `pip install -r requirements.txt`.
-* **Configuration:** Create a `.env` file in the root directory to manage your **Snowflake** and **Postgres** credentials.
+* **Clone the Repository**: Start by cloning the project to your local machine: `git clone https://github.com/goutham2222/banking-modern-datastack`.
+* **Dependency Management**: Ensure Python 3.9+ is installed, then install the required libraries: `pip install -r requirements.txt`.
+* **Configuration**: Create a `.env` file in the root directory. You must provide credentials for **Snowflake** (Account, User, Password, Warehouse), **Postgres**, and **MinIO** to allow the components to communicate.
 
 ### 2. Pipeline Execution Sequence
-1. **Spin up Infrastructure:** Execute `docker-compose up -d` to initialize the containerized ecosystem (Postgres, Kafka, Zookeeper, MinIO, and Airflow).
-2. **Establish CDC Link:** Register the Debezium connector: `python kafka-debezium/connector.py`.
-3. **Activate Data Stream:** * `python data-generator.py` (Simulates live banking transactions).
-    * `python stream_to_datalake.py` (Initiates dual-trigger ingestion to the MinIO lake).
-4. **Orchestrate Workflows:** Access the **Airflow UI** to trigger:
-    * **DAG_001:** Automates the movement of Parquet files from MinIO into Snowflake.
-    * **DAG_002:** Executes dbt transformations and SCD Type 2 snapshots.
+To successfully run the end-to-end flow, follow this specific order of operations:
+
+1.  **Spin up Infrastructure**: Run `docker-compose up -d`. This initializes the core ecosystem, including the Postgres database, Kafka/Zookeeper bus, MinIO object storage, and the Airflow webserver.
+2.  **Establish CDC Link**: Register the Debezium connector by running `python kafka-debezium/connector.py`. This tells Debezium to begin monitoring the Postgres Write-Ahead Log (WAL). 
+3.  **Activate Data Stream**:
+    * **Generator**: Run `python data-generator.py` to simulate a live banking environment with random customer joins and transactions.
+    * **Streamer**: Run `python stream_to_datalake.py`. This service consumes Kafka events and applies the **Dual-Trigger Flush** logic to land Parquet files in MinIO.
+4.  **Orchestrate Workflows**: Access the Airflow UI (typically at `localhost:8080`) and toggle the following:
+    * **DAG_001**: Triggers the automated movement of data from the MinIO Landing zone into Snowflake `VARIANT` tables.
+    * **DAG_002**: Executes the dbt transformation pipeline, including staging, SCD Type 2 snapshots, and final mart creation.
+
+---
 
 ## 7. Path to Enterprise Deployment
-Transitioning from this localized prototype to a global banking environment requires specific enterprise "hardening" to ensure compliance, security, and extreme availability.
+
+While this project implements high-fidelity patterns, transitioning to a global production banking environment requires specific "hardening" for compliance and extreme availability.
 
 ### Security & Data Governance
-* **PII & Data Masking**: To comply with financial privacy laws (GDPR/CCPA), sensitive customer data such as emails and physical addresses would undergo **Dynamic Data Masking** or hashing before landing in the Data Lake.
-* **Enterprise Secret Management**: Transitioning from local configurations to managed solutions like **AWS Secrets Manager** or **HashiCorp Vault** to protect database credentials and API keys.
-* **Audit Trail Encryption**: Implementing end-to-end encryption for the Kafka message bus and at-rest encryption for the MinIO/S3 Data Lake to ensure total financial data privacy.
+* **PII & Data Masking**: To comply with financial privacy laws like **GDPR** or **CCPA**, sensitive customer data (emails, SSNs, addresses) would undergo **Dynamic Data Masking** or hashing before ever landing in the Data Lake.
+* **Enterprise Secret Management**: Local `.env` files would be replaced with managed vault solutions like **AWS Secrets Manager** or **HashiCorp Vault** to rotate and protect sensitive database credentials.
+* **Audit Trail Encryption**: Implementation of end-to-end encryption for the Kafka message bus and **AES-256** at-rest encryption for the MinIO/S3 Data Lake ensures total financial data privacy.
 
 ### Scalability & Infrastructure Resilience
-* **Cloud-Native Orchestration**: Migrating containerized workloads from Docker to a managed Kubernetes service (**Amazon EKS** or **Google GKE**) to enable high availability and auto-scaling.
-* **Proactive Observability**: Integrating specialized alerting tools like **PagerDuty** or **Slack** to notify engineers of ingestion lag spikes or DAG failures.
-* **Multi-Region Redundancy**: Deploying the pipeline across multiple cloud regions to ensure banking intelligence remains operational during localized provider outages.
+* **Cloud-Native Orchestration**: Containerized workloads would migrate from Docker to a managed Kubernetes service (**Amazon EKS** or **Google GKE**) to enable automated horizontal scaling during peak transaction periods.
+* **Proactive Observability**: Integration of specialized monitoring tools (e.g., **Prometheus/Grafana**) and alerting platforms like **PagerDuty** or **Slack** to notify engineers of ingestion lag or pipeline failures in real-time.
+* **Multi-Region Redundancy**: Deploying the infrastructure across multiple cloud availability zones to ensure the banking intelligence suite remains operational even during a major provider outage.
 
 ### Compliance & Quality Assurance
-* **Automated Data Contracts**: Implementing schema registries in Kafka to ensure that changes in the upstream PostgreSQL database do not break downstream Snowflake transformations.
-* **Continuous Integrity Testing**: Expanding the existing **dbt-test** suite to include volumetric checks and financial reconciliation between the Transactional Source (Postgres) and the Analytical Warehouse (Snowflake).
+* **Automated Data Contracts**: Implementation of a **Kafka Schema Registry** to enforce strict data contracts, ensuring that upstream database schema changes do not break downstream analytical models.
+* **Continuous Integrity Testing**: Expanding the existing **dbt-test** suite to include volumetric checks and automated financial reconciliation between the Transactional Source (Postgres) and the Analytical Warehouse (Snowflake).
